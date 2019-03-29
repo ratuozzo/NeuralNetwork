@@ -10,6 +10,7 @@ import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.nd4j.evaluation.classification.Evaluation;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.cpu.nativecpu.NDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.io.ClassPathResource;
@@ -37,6 +38,7 @@ public class Autoencoder {
     DataSetIterator _testIter;
 
     private double _totalScore;
+    private double _treshold;
 
     MultiLayerConfiguration _conf;
 
@@ -44,16 +46,16 @@ public class Autoencoder {
     Evaluation _eval;
 
 
-    org.deeplearning4j.nn.layers.variational.VariationalAutoencoder _vae;
+
 
     public Autoencoder() throws IOException, InterruptedException {
 
         _totalScore = 0;
         _seed = 123;
         _learningRate = 0.01;
-        _batchSizeTraining = 30;
+        _batchSizeTraining = 1;
         _batchSizeTesting = 1;
-        _nEpochs = 10000;
+        _nEpochs = 10;
 
         _numInputs = 3;
         _numOutputs = 3;
@@ -66,7 +68,13 @@ public class Autoencoder {
         _trainIter = new AnomalyDataSetIterator(new ClassPathResource("OneClass/training_raul.csv").getFile().getPath(), _batchSizeTraining);
         _testIter = new AnomalyDataSetIterator(new ClassPathResource("OneClass/eval_raul.csv").getFile().getPath(), _batchSizeTesting);
 
+        initModel();
 
+        _eval = new Evaluation(_numOutputs);
+
+    }
+
+    private void initModel(){
         _conf = new NeuralNetConfiguration.Builder()
                 .seed(123)
                 .updater(new RmsProp(1e-3))
@@ -75,12 +83,12 @@ public class Autoencoder {
                 .list()
                 .layer(0, new VariationalAutoencoder.Builder()
                         .activation(Activation.LEAKYRELU)
-                        .encoderLayerSizes(3, 2)        //2 encoder layers, each of size 256
-                        .decoderLayerSizes(2, 3)        //2 decoder layers, each of size 256
+                        .encoderLayerSizes(50,50)        //2 encoder layers, each of size 256
+                        .decoderLayerSizes(50, 50)        //2 decoder layers, each of size 256
                         .pzxActivationFunction(Activation.IDENTITY)  //p(z|data) activation function
                         .reconstructionDistribution(new BernoulliReconstructionDistribution(Activation.SIGMOID.getActivationFunction()))     //Bernoulli distribution for p(data|z) (binary or 0 to 1 data only)
-                        .nIn(3)                       //Input size: 28x28
-                        .nOut(3)                            //Size of the latent variable space: p(z|x). 2 dimensions here for plotting, use more in general
+                        .nIn(3)
+                        .nOut(3)                        
                         .build())
                 .pretrain(true).backprop(false).build();
 
@@ -102,64 +110,82 @@ public class Autoencoder {
 
         //System.out.println(_conf.toJson());
 
-        _model = new MultiLayerNetwork(_conf);
 
-        _eval = new Evaluation(_numOutputs);
+
+        _model = new MultiLayerNetwork(_conf);
+        _model.init();
 
     }
 
     public void train() {
-
-        _model.init();
-        _vae = (org.deeplearning4j.nn.layers.variational.VariationalAutoencoder) _model.getLayer(0);
-
-        _model.setListeners(new ScoreIterationListener(100));
-
-        DataSet dSet = _trainIter.next();
-
         for ( int n = 0; n < _nEpochs; n++) {
-            _model.fit( _trainIter );
+            _model.pretrain( _trainIter );
+            System.out.println("Epoch: " +n);
         }
+
+        calculateThreshold();
+    }
+
+    private void calculateThreshold() {
+
+        int trainDatacount=0;
+        _trainIter.reset();
+        while(_trainIter.hasNext()){
+            trainDatacount++;
+            DataSet t = _trainIter.next();
+            INDArray features = t.getFeatures();
+            INDArray labels = t.getLabels();
+            INDArray predicted = _model.output(features,false);
+
+            double score = calculateScore(predicted);
+            System.out.println("Score: "+score);
+            _totalScore += score;
+        }
+
+        _treshold = _totalScore/trainDatacount;
+        System.out.println("Threshold: "+_treshold);
+    }
+
+    private double calculateScore(INDArray predicted) {
+        return  Math.abs(predicted.data().getFloat(0)) +
+                Math.abs(predicted.data().getFloat(1)) +
+                Math.abs(predicted.data().getFloat(2));
     }
 
     public void evaluate() {
-
-
 
         List<Pair<Double,Integer>> evalList = new ArrayList<Pair<Double,Integer>>();
         int aux = 0;
         while(_testIter.hasNext()){
             DataSet t = _testIter.next();
-            System.out.println(_vae.score());
             INDArray features = t.getFeatures();
             INDArray labels = t.getLabels();
             INDArray predicted = _model.output(features,false);
-            System.out.println("data: " + predicted);
-            System.out.println("Labels: " + labels);
-            double score = Math.abs(Math.abs(predicted.data().getFloat(0)) - Math.abs(labels.data().getFloat(0))) +
-            Math.abs(Math.abs(predicted.data().getFloat(1)) - Math.abs(labels.data().getFloat(1))) +
-            Math.abs(Math.abs(predicted.data().getFloat(2)) - Math.abs(labels.data().getFloat(2)));
-            _totalScore += score;
+
+
+            double score = calculateScore(predicted);
+
+            System.out.println("Label: "+labels+" Data: " + predicted+ " Score: "+score);
+
+
+
             evalList.add(new ImmutablePair<>(score, aux));
             aux++;
         }
 
         Collections.sort(evalList, Comparator.comparing(Pair::getRight));
         Stack<Integer> anomalyData = new Stack<>();
+
         System.out.println("Size: " + evalList.size());
-        double threshold = (_totalScore / evalList.size());
-        System.out.println("Threshold: " + threshold);
+
+
         for (Pair<Double, Integer> pair: evalList) {
             double s = pair.getLeft();
-            if (s >  threshold) {
+            if (s >  _treshold) {
                 anomalyData.push(pair.getRight());
             }
         }
 
-        System.out.println(_eval.stats());
-        System.out.println(_eval.confusionToString());
-        System.out.println(_eval.getLabelsList());
-        System.out.println("Score: " + _totalScore);
 
         //output anomaly data
         System.out.println("based on the score, all anomaly data is following with descending order:\n");
