@@ -1,11 +1,20 @@
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
+import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.Updater;
+import org.deeplearning4j.nn.conf.WorkspaceMode;
+import org.deeplearning4j.nn.conf.layers.AutoEncoder;
+import org.deeplearning4j.nn.conf.layers.DenseLayer;
+import org.deeplearning4j.nn.conf.layers.OutputLayer;
 import org.deeplearning4j.nn.conf.layers.variational.BernoulliReconstructionDistribution;
+import org.deeplearning4j.nn.conf.layers.variational.ExponentialReconstructionDistribution;
+import org.deeplearning4j.nn.conf.layers.variational.GaussianReconstructionDistribution;
 import org.deeplearning4j.nn.conf.layers.variational.VariationalAutoencoder;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
+import org.deeplearning4j.nn.workspace.LayerWorkspaceMgr;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.nd4j.evaluation.classification.Evaluation;
 import org.nd4j.linalg.activations.Activation;
@@ -15,27 +24,30 @@ import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.io.ClassPathResource;
 import org.nd4j.linalg.learning.config.RmsProp;
+import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.IOException;
 import java.util.*;
 
+import static org.deeplearning4j.nn.conf.WorkspaceMode.*;
+
 public class Autoencoder {
 
-    private int _seed;
-    private double _learningRate;
     private int _batchSizeTraining;
     private int _batchSizeTesting;
     private int _nEpochs;
 
     private int _numInputs;
     private int _numOutputs;
-    private int _numHiddenNodes;
 
     String _filenameTrain;
     String _filenameTest;
 
     DataSetIterator _trainIter;
     DataSetIterator _testIter;
+
+    private int[] _encoderSizes = new int[]{6,3};
+    private int[] _decoderSizes = new int[]{3,6};
 
     private double _totalScore;
     private double _treshold;
@@ -44,6 +56,8 @@ public class Autoencoder {
 
     MultiLayerNetwork _model;
     Evaluation _eval;
+    org.deeplearning4j.nn.layers.variational.VariationalAutoencoder _vae;
+
 
 
 
@@ -51,15 +65,14 @@ public class Autoencoder {
     public Autoencoder() throws IOException, InterruptedException {
 
         _totalScore = 0;
-        _seed = 123;
-        _learningRate = 0.01;
         _batchSizeTraining = 1;
         _batchSizeTesting = 1;
-        _nEpochs = 10;
 
-        _numInputs = 3;
-        _numOutputs = 3;
-        _numHiddenNodes = 30;
+
+        _nEpochs = 30;
+
+        _numInputs = 10;
+        _numOutputs = 10;
 
 
         _filenameTrain  = new ClassPathResource("OneClass/training_raul.csv").getFile().getPath();
@@ -75,25 +88,9 @@ public class Autoencoder {
     }
 
     private void initModel(){
-        _conf = new NeuralNetConfiguration.Builder()
-                .seed(123)
-                .updater(new RmsProp(1e-3))
-                .weightInit(WeightInit.XAVIER)
-                .l2(1e-4)
-                .list()
-                .layer(0, new VariationalAutoencoder.Builder()
-                        .activation(Activation.LEAKYRELU)
-                        .encoderLayerSizes(50,50)        //2 encoder layers, each of size 256
-                        .decoderLayerSizes(50, 50)        //2 decoder layers, each of size 256
-                        .pzxActivationFunction(Activation.IDENTITY)  //p(z|data) activation function
-                        .reconstructionDistribution(new BernoulliReconstructionDistribution(Activation.SIGMOID.getActivationFunction()))     //Bernoulli distribution for p(data|z) (binary or 0 to 1 data only)
-                        .nIn(3)
-                        .nOut(3)                        
-                        .build())
-                .pretrain(true).backprop(false).build();
 
         /*_conf = new NeuralNetConfiguration.Builder()
-                .trainingWorkspaceMode(WorkspaceMode.ENABLED).inferenceWorkspaceMode(WorkspaceMode.ENABLED)
+                .trainingWorkspaceMode(ENABLED).inferenceWorkspaceMode(ENABLED)
                 .seed(123456)
                 .optimizationAlgo( OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                 .updater(new RmsProp.Builder().learningRate(0.05).rmsDecay(0.002).build())
@@ -101,29 +98,50 @@ public class Autoencoder {
                 .weightInit(WeightInit.XAVIER)
                 .activation(Activation.RELU)
                 .list()
-                .layer(0, new AutoEncoder.Builder().name("input").nIn(_numInputs).nOut(2).build())
-                .layer(1, new AutoEncoder.Builder().name("encoder1").nOut(1).build())
-                .layer(2, new AutoEncoder.Builder().name("decoder1").nOut(2).build())
-                .layer(3, new OutputLayer.Builder().name("output").nOut(3)
-                        .lossFunction(LossFunctions.LossFunction.MSE).build())
+                .layer(0, input)
+                .layer(1, encoder)
+                //.layer(2, decoder)
+                //.layer(3, output)
+                .pretrain(true)
                 .build();*/
 
-        //System.out.println(_conf.toJson());
+        _conf = new NeuralNetConfiguration.Builder()
+                .updater(new RmsProp.Builder().learningRate(0.05).rmsDecay(0.002).build())
+                .weightInit(WeightInit.XAVIER)
+                .list()
+                .layer(0, new VariationalAutoencoder.Builder()
+                        .activation(Activation.RELU)
+                        .encoderLayerSizes(_encoderSizes)
+                        .decoderLayerSizes(_decoderSizes)
+                        .pzxActivationFunction(Activation.IDENTITY)
+                        //.reconstructionDistribution(new BernoulliReconstructionDistribution(Activation.SIGMOID))
+                        .reconstructionDistribution(new GaussianReconstructionDistribution(Activation.TANH))
+                        .nIn(_numInputs)
+                        .nOut(_numOutputs)
+                        .build())
+                .pretrain(true).backprop(false).build();
+
+
+//        /System.out.println(_conf.toJson());
 
 
 
         _model = new MultiLayerNetwork(_conf);
         _model.init();
 
+
+       _vae = (org.deeplearning4j.nn.layers.variational.VariationalAutoencoder) _model.getLayer(0);
+
+
     }
 
     public void train() {
-        for ( int n = 0; n < _nEpochs; n++) {
-            _model.pretrain( _trainIter );
-            System.out.println("Epoch: " +n);
+        for (int i = 0; i < _nEpochs; i++) {
+            System.out.println("Epoch: "+i);
+            _model.pretrain(_trainIter);    //Note use of .pretrain(DataSetIterator) not fit(DataSetIterator) for unsupervised training
         }
 
-        calculateThreshold();
+        //calculateThreshold();
     }
 
     private void calculateThreshold() {
@@ -159,13 +177,12 @@ public class Autoencoder {
         while(_testIter.hasNext()){
             DataSet t = _testIter.next();
             INDArray features = t.getFeatures();
-            INDArray labels = t.getLabels();
-            INDArray predicted = _model.output(features,false);
-
-
+            INDArray predicted = _model.output(features);
+            predicted = _vae.generateRandomGivenZ(features, LayerWorkspaceMgr.noWorkspaces());
+            //INDArray activate = _model.activate(features, true, LayerWorkspaceMgr.noWorkspaces());
             double score = calculateScore(predicted);
 
-            System.out.println("Label: "+labels+" Data: " + predicted+ " Score: "+score);
+           // System.out.println("Label: "+labels+" Data: " + predicted+ " Score: "+score);
 
 
 
@@ -173,7 +190,7 @@ public class Autoencoder {
             aux++;
         }
 
-        Collections.sort(evalList, Comparator.comparing(Pair::getRight));
+        /*Collections.sort(evalList, Comparator.comparing(Pair::getRight));
         Stack<Integer> anomalyData = new Stack<>();
 
         System.out.println("Size: " + evalList.size());
@@ -194,7 +211,7 @@ public class Autoencoder {
             System.out.println(anomalyData.pop());
         }
 
-        System.out.println("Number of anomlies: " + anomalies);
+        System.out.println("Number of anomlies: " + anomalies);*/
     }
 
 }

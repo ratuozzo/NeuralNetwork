@@ -27,7 +27,7 @@ public class AnomalyDataSetReader {
         this.skipNumLines = 0;
         this.skipNumColumns = 0;
         this.longestTimeSequence = 0;
-        this.shortest = 3;
+        this.shortest = 10;
         this.filePath = file.toPath();
         this.currentLines =  new LinkedList<String>();
         doInitialize();
@@ -72,7 +72,12 @@ public class AnomalyDataSetReader {
                 }
             }
         }
-        DataSet dSet = new DataSet(features, features, featuresMask, featuresMask);
+        INDArray labels = Nd4j.create(2, 2);
+        labels.putScalar(new int[]{0,0},1);
+        labels.putScalar(new int[]{0,1},0);
+        labels.putScalar(new int[]{1,0},0);
+        labels.putScalar(new int[]{1,1},1);
+        DataSet dSet = new DataSet(features, labels, featuresMask, featuresMask);
         return dSet;
     }
 

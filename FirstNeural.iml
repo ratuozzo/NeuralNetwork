@@ -159,5 +159,7 @@
     <orderEntry type="library" name="Maven: org.nd4j:nd4j-native:windows-x86_64:1.0.0-beta3" level="project" />
     <orderEntry type="library" name="Maven: org.nd4j:nd4j-native:linux-ppc64le:1.0.0-beta3" level="project" />
     <orderEntry type="library" name="Maven: org.nd4j:nd4j-native:linux-armhf:1.0.0-beta3" level="project" />
+    <orderEntry type="library" name="Maven: jfree:jfreechart:1.0.13" level="project" />
+    <orderEntry type="library" name="Maven: jfree:jcommon:1.0.16" level="project" />
   </component>
 </module>
