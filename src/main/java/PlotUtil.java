@@ -46,7 +46,7 @@ public class PlotUtil {
                 }
                 lastPanel = panel;
                 f.add(panel, BorderLayout.CENTER);
-                f.setTitle(getTitle(value, plotFrequency));
+                f.setTitle("Salida bidimensional de la red en la interacion: " + value * plotFrequency);
                 f.revalidate();
             }
         });
@@ -56,13 +56,9 @@ public class PlotUtil {
         f.add(panel, BorderLayout.CENTER);
         f.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         f.pack();
-        f.setTitle(getTitle(0, plotFrequency));
+        f.setTitle("Salida bidimensional de la red en la interacion: 0");
 
         f.setVisible(true);
-    }
-
-    private static String getTitle(int recordNumber, int plotFrequency){
-        return "MNIST Test Set - Latent Space Encoding at Training Iteration " + recordNumber * plotFrequency;
     }
 
 
@@ -97,7 +93,7 @@ public class PlotUtil {
     }
 
     private static JFreeChart createChart(INDArray features, INDArray labels, double axisMin, double axisMax) {
-        return createChart(features, labels, axisMin, axisMax, "Variational Autoencoder Latent Space - MNIST Test Set");
+        return createChart(features, labels, axisMin, axisMax, "Vae: Salida 2D");
     }
 
     private static JFreeChart createChart(INDArray features, INDArray labels, double axisMin, double axisMax, String title ) {
@@ -147,80 +143,5 @@ public class PlotUtil {
         rangeAxis.setMinorTickMarksVisible(true);
         rangeAxis.setRange(axisMin, axisMax);
         return chart;
-    }
-
-
-    public static class MNISTLatentSpaceVisualizer {
-        private double imageScale;
-        private List<INDArray> digits;  //Digits (as row vectors), one per INDArray
-        private int plotFrequency;
-        private int gridWidth;
-
-        public MNISTLatentSpaceVisualizer(double imageScale, List<INDArray> digits, int plotFrequency) {
-            this.imageScale = imageScale;
-            this.digits = digits;
-            this.plotFrequency = plotFrequency;
-            this.gridWidth = (int)Math.sqrt(digits.get(0).size(0)); //Assume square, nxn rows
-        }
-
-        private String getTitle(int recordNumber){
-            return "Reconstructions Over Latent Space at Training Iteration " + recordNumber * plotFrequency;
-        }
-
-        public void visualize(){
-            JFrame frame = new JFrame();
-            frame.setTitle(getTitle(0));
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setLayout(new BorderLayout());
-
-            JPanel panel = new JPanel();
-            panel.setLayout(new GridLayout(0,gridWidth));
-
-            JSlider slider = new JSlider(0,digits.size()-1, 0);
-            slider.addChangeListener(new ChangeListener() {
-                @Override
-                public void stateChanged(ChangeEvent e) {
-                    JSlider slider = (JSlider)e.getSource();
-                    int  value = slider.getValue();
-                    panel.removeAll();
-                    List<JLabel> list = getComponents(value);
-                    for(JLabel image : list){
-                        panel.add(image);
-                    }
-                    frame.setTitle(getTitle(value));
-                    frame.revalidate();
-                }
-            });
-            frame.add(slider, BorderLayout.NORTH);
-
-
-            List<JLabel> list = getComponents(0);
-            for(JLabel image : list){
-                panel.add(image);
-            }
-
-            frame.add(panel, BorderLayout.CENTER);
-            frame.setVisible(true);
-            frame.pack();
-        }
-
-        private List<JLabel> getComponents(int idx){
-            List<JLabel> images = new ArrayList<>();
-            List<INDArray> temp =  new ArrayList<>();
-            for( int i=0; i<digits.get(idx).size(0); i++ ){
-                temp.add(digits.get(idx).getRow(i));
-            }
-            for( INDArray arr : temp ){
-                BufferedImage bi = new BufferedImage(28,28,BufferedImage.TYPE_BYTE_GRAY);
-                for( int i=0; i<784; i++ ){
-                    bi.getRaster().setSample(i % 28, i / 28, 0, (int)(255*arr.getDouble(i)));
-                }
-                ImageIcon orig = new ImageIcon(bi);
-                Image imageScaled = orig.getImage().getScaledInstance((int)(imageScale*28),(int)(imageScale*28),Image.SCALE_REPLICATE);
-                ImageIcon scaled = new ImageIcon(imageScaled);
-                images.add(new JLabel(scaled));
-            }
-            return images;
-        }
     }
 }
