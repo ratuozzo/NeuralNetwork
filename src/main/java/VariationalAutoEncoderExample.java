@@ -2,6 +2,7 @@ import org.deeplearning4j.datasets.iterator.impl.MnistDataSetIterator;
 import org.deeplearning4j.nn.api.Model;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.WorkspaceMode;
 import org.deeplearning4j.nn.conf.layers.variational.BernoulliReconstructionDistribution;
 import org.deeplearning4j.nn.conf.layers.variational.VariationalAutoencoder;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
@@ -48,8 +49,11 @@ public class VariationalAutoEncoderExample {
     public static double minY = 1000000;
     public static double maxY = -1000000;
 
+    static int _trainRows = 5000;
+    static int _evaluationRows = 10000;
+
     static int rngSeed = 12345;
-    static int nEpochs = 3;
+    static int nEpochs = 100;
 
     static double plotMin = -40;                //Minimum values for plotting (x and y dimensions)
     static double plotMax = 40;                 //Maximum values for plotting (x and y dimensions)
@@ -67,8 +71,8 @@ public class VariationalAutoEncoderExample {
         //Plotting configuration
         int plotEveryNMinibatches = 10;    //Frequency with which to collect data for later plotting
 
-        _trainIter = new AnomalyDataSetIterator(new ClassPathResource("OneClass/training_raul.csv").getFile().getPath(), minibatchSize);
-        _testIter = new AnomalyDataSetIterator(new ClassPathResource("OneClass/eval_raul.csv").getFile().getPath(), minibatchSize);
+        _trainIter = new AnomalyDataSetIterator(new ClassPathResource("Packets/telnet.csv").getFile().getPath(), minibatchSize);
+        _testIter = new AnomalyDataSetIterator(new ClassPathResource("Packets/bigflows.csv").getFile().getPath(), minibatchSize);
 
         initializeModel();
 
@@ -90,7 +94,7 @@ public class VariationalAutoEncoderExample {
     private static void setData() {
         int plotNumSteps = 16;
         //Test data for plotting
-        DataSet testdata = _testIter.next(3000); //esto puedeser un ciclo
+        DataSet testdata = _testIter.next(_evaluationRows); //esto puedeser un ciclo
         testFeatures = testdata.getFeatures();
         testLabels = testdata.getLabels();
         latentSpaceGrid = getLatentSpaceGrid(plotMin, plotMax, plotNumSteps);              //X/Y grid values, between plotMin and plotMax
@@ -117,14 +121,16 @@ public class VariationalAutoEncoderExample {
         Nd4j.getRandom().setSeed(rngSeed);
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed)
-                .updater(new RmsProp(1e-3))
+                .trainingWorkspaceMode(WorkspaceMode.ENABLED)
+                .inferenceWorkspaceMode(WorkspaceMode.ENABLED)
+                .updater(new RmsProp(0.001))
                 .weightInit(WeightInit.XAVIER)
                 .l2(1e-4)
                 .list()
                 .layer(0, new VariationalAutoencoder.Builder()
                         .activation(Activation.LEAKYRELU)
-                        .encoderLayerSizes(5, 5)        //2 encoder layers, each of size 256
-                        .decoderLayerSizes(5, 5)        //2 decoder layers, each of size 256
+                        .encoderLayerSizes(5, 2)        //2 encoder layers, each of size 256
+                        .decoderLayerSizes(2, 5)        //2 decoder layers, each of size 256
                         .pzxActivationFunction(Activation.IDENTITY)  //p(z|data) activation function
                         .reconstructionDistribution(new BernoulliReconstructionDistribution(Activation.SIGMOID.getActivationFunction()))     //Bernoulli distribution for p(data|z) (binary or 0 to 1 data only)
                         .nIn(10)                       //Input size: 28x28
@@ -142,7 +148,7 @@ public class VariationalAutoEncoderExample {
     private static void calculateArea() {
         _trainIter.reset();
         //_net.output(_trainIter, false); //Output = activate?
-        INDArray latentSpaceValues = _vae.activate(_trainIter.next(1000).getFeatures(), false, LayerWorkspaceMgr.noWorkspaces());
+        INDArray latentSpaceValues = _vae.activate(_trainIter.next(_trainRows).getFeatures(), false, LayerWorkspaceMgr.noWorkspaces());
         for (int i = 0; i < latentSpaceValues.length()/2; i++) {
             double x = latentSpaceValues.getDouble(i,0);
             double y = latentSpaceValues.getDouble(i,1);

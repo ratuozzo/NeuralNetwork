@@ -23,3 +23,11 @@
 hs_err_pid*
 
 \.idea/
+
+target/classes/Packets/telnet\.csv
+
+target/classes/Packets/bigflows\.csv
+
+src/main/resources/Packets/telnet\.csv
+
+src/main/resources/Packets/bigflows\.csv
